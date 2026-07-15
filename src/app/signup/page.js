@@ -1,172 +1,180 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { Suspense, useState } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
+import { sanitizeText, sanitizeEmail } from '@/lib/sanitize';
 
-export default function SignUp() {
-  const router = useRouter()
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState(null)
-  const [form,    setForm]    = useState({
-    fullName: '', companyName: '', email: '', password: '',
-  })
+export default function SignupPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignupForm />
+    </Suspense>
+  );
+}
 
-  function handleChange(e) {
-    setForm({ ...form, [e.target.name]: e.target.value })
-    setError(null)
-  }
+function SignupForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const inviteToken = searchParams.get('invite') || '';
 
-  async function handleSignUp(e) {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
+  const [companyName, setCompanyName] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-    try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email:    form.email,
-        password: form.password,
-        options:  { data: { full_name: form.fullName } }
-      })
-      if (authError) throw authError
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
 
-      const { error: setupError } = await supabase.rpc('setup_company', {
-        p_company_name:  form.companyName,
-        p_company_email: form.email,
-        p_full_name:     form.fullName,
-      })
-      if (setupError) throw setupError
+    const cleanName = sanitizeText(fullName);
+    const cleanEmail = sanitizeEmail(email);
+    const cleanCompany = sanitizeText(companyName);
 
-      router.push('/dashboard')
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
+    if (!cleanName) return setError('Enter your full name.');
+    if (!cleanEmail) return setError('Enter a valid email address.');
+    if (!inviteToken && !cleanCompany) return setError('Enter your company name.');
+    if (password.length < 8) return setError('Password must be at least 8 characters.');
+
+    setLoading(true);
+
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email: cleanEmail,
+      password,
+    });
+
+    if (signUpError) {
+      setLoading(false);
+      setError(signUpError.message);
+      return;
     }
+
+    const userId = signUpData?.user?.id;
+    if (!userId) {
+      setLoading(false);
+      setError('Account created — check your email to confirm, then log in.');
+      return;
+    }
+
+    // Supabase can require the session to actually be active (not just the
+    // user object returned) before an RPC call is authenticated as them —
+    // if email confirmation is on, there's no session yet at this point.
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) {
+      setLoading(false);
+      setError('Account created — check your email to confirm, then log in to finish setup.');
+      return;
+    }
+
+    // Company + profile creation is one atomic, server-side step (see
+    // create_company_and_profile / accept_team_invite in the SQL setup) —
+    // there is no separate client-side insert left to partially fail.
+    const { error: rpcError } = inviteToken
+      ? await supabase.rpc('accept_team_invite', {
+          p_token: inviteToken,
+          p_full_name: cleanName,
+        })
+      : await supabase.rpc('create_company_and_profile', {
+          p_company_name: cleanCompany,
+          p_full_name: cleanName,
+        });
+
+    setLoading(false);
+
+    if (rpcError) {
+      setError(rpcError.message);
+      return;
+    }
+
+    router.push('/dashboard');
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#060e08', display: 'flex', alignItems: 'stretch' }}>
-
-      {/* Left panel */}
-      <div style={{
-        width: '380px',
-        flexShrink: 0,
-        padding: '48px',
+    <div
+      style={{
+        minHeight: '100vh',
         display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'space-between',
-        borderRight: '1px solid #0d1f12',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{
-            width: '28px', height: '28px', background: '#16a34a',
-            borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <span style={{ color: 'white', fontWeight: '700', fontSize: '13px' }}>H</span>
-          </div>
-          <span style={{ color: 'white', fontWeight: '600', fontSize: '15px' }}>HabeshaPay</span>
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--parchment)',
+        padding: 24,
+      }}
+    >
+      <div style={{ width: '100%', maxWidth: 420 }}>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <Link href="/" className="font-display" style={{ fontSize: 24, color: 'var(--ink)', textDecoration: 'none' }}>
+            EthioPayroll
+          </Link>
         </div>
 
-        <div>
-          <h1 style={{
-            color: 'white', fontSize: '26px', fontWeight: '700',
-            letterSpacing: '-0.03em', lineHeight: '1.3', marginBottom: '16px',
-          }}>
-            Fix your payroll.<br/>Free for 30 days.
+        <div className="card">
+          <h1 style={{ fontSize: 20, marginBottom: 4 }}>
+            {inviteToken ? 'Join your team' : 'Create your account'}
           </h1>
-          <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '14px', lineHeight: '1.6' }}>
-            Ethiopian businesses using HabeshaPay cut payroll processing time
-            from days to minutes — and never miss an ERCA deadline.
+          <p style={{ fontSize: 13, color: '#6b6355', marginBottom: 24 }}>
+            {inviteToken
+              ? "You're accepting an invite — your account will be added straight to your team's existing workspace."
+              : 'Set up your company workspace in under a minute.'}
           </p>
-        </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {[
-            'Correct ERCA tax across all 7 brackets',
-            'Employee + employer pension auto-calculated',
-            'Monthly ERCA declaration document generated',
-            'Payslips in Amharic and English',
-          ].map(f => (
-            <div key={f} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{
-                width: '16px', height: '16px', background: 'rgba(22,163,74,0.2)',
-                borderRadius: '3px', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', flexShrink: 0,
-              }}>
-                <span style={{ color: '#22c55e', fontSize: '10px', fontWeight: '700' }}>✓</span>
+          <form onSubmit={handleSubmit}>
+            {!inviteToken && (
+              <div className="field">
+                <label htmlFor="companyName">Company name</label>
+                <input id="companyName" value={companyName} onChange={(e) => setCompanyName(e.target.value)} required />
               </div>
-              <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>{f}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+            )}
 
-      {/* Right panel — form */}
-      <div style={{
-        flex: 1, background: '#f5f4f0',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px',
-      }}>
-        <div style={{ width: '100%', maxWidth: '380px' }}>
-          <h2 style={{
-            fontSize: '22px', fontWeight: '700', color: '#1c1917',
-            letterSpacing: '-0.02em', marginBottom: '6px',
-          }}>
-            Create your account
-          </h2>
-          <p style={{ fontSize: '13px', color: '#78716c', marginBottom: '28px' }}>
-            Set up your company in under 2 minutes.
-          </p>
-
-          {error && <div className="error-box">{error}</div>}
-
-          <form onSubmit={handleSignUp} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <div>
-              <label className="input-label">Your full name</label>
-              <input className="input" name="fullName" type="text" required
-                autoFocus placeholder="Abreham Tesfaye"
-                value={form.fullName} onChange={handleChange}/>
+            <div className="field">
+              <label htmlFor="fullName">Your full name</label>
+              <input id="fullName" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
             </div>
 
-            <div>
-              <label className="input-label">Company name</label>
-              <input className="input" name="companyName" type="text" required
-                placeholder="Awash Trading PLC"
-                value={form.companyName} onChange={handleChange}/>
+            <div className="field">
+              <label htmlFor="email">Email</label>
+              <input
+                id="email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
             </div>
 
-            <div>
-              <label className="input-label">Work email</label>
-              <input className="input" name="email" type="email" required
-                placeholder="you@company.com"
-                value={form.email} onChange={handleChange}/>
+            <div className="field">
+              <label htmlFor="password">Password</label>
+              <input
+                id="password"
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              <span className="field-hint">At least 8 characters.</span>
             </div>
 
-            <div>
-              <label className="input-label">Password</label>
-              <input className="input" name="password" type="password" required
-                minLength={8} placeholder="At least 8 characters"
-                value={form.password} onChange={handleChange}/>
-            </div>
+            {error && <p className="field-error" style={{ marginBottom: 16 }}>{error}</p>}
 
-            <button type="submit" disabled={loading} className="btn-primary"
-              style={{ marginTop: '6px', justifyContent: 'center', padding: '10px 16px' }}>
-              {loading ? 'Creating account...' : 'Create account →'}
+            <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={loading}>
+              {loading ? 'Creating account…' : inviteToken ? 'Join team' : 'Create account'}
             </button>
           </form>
-
-          <p style={{ fontSize: '12px', color: '#a8a29e', marginTop: '20px', textAlign: 'center' }}>
-            Already have an account?{' '}
-            <a href="/login" style={{ color: '#16a34a', textDecoration: 'none', fontWeight: '500' }}>
-              Sign in
-            </a>
-          </p>
-
-          <p style={{ fontSize: '11px', color: '#c4bfb9', marginTop: '28px', textAlign: 'center' }}>
-            ERCA compliant · Built in Addis Ababa · Free for 30 days
-          </p>
         </div>
+
+        <p style={{ textAlign: 'center', fontSize: 13, color: '#6b6355', marginTop: 20 }}>
+          Already have an account?{' '}
+          <Link href="/login" style={{ color: 'var(--forest)' }}>
+            Log in
+          </Link>
+        </p>
       </div>
     </div>
-  )
+  );
 }

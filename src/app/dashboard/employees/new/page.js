@@ -1,336 +1,202 @@
-'use client'
+'use client';
 
-import { useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
+import { useCompany } from '@/hooks/useCompany';
+import { sanitizeText, sanitizeEmail, sanitizePhone, sanitizeNumber, sanitizeTIN } from '@/lib/sanitize';
 
-// ── Ethiopian tax calculation (mirrors the engine) ─────────────
-const BRACKETS = [
-  { max: 600,      rate: 0,    ded: 0      },
-  { max: 1650,     rate: 0.10, ded: 60     },
-  { max: 3200,     rate: 0.15, ded: 142.50 },
-  { max: 5250,     rate: 0.20, ded: 302.50 },
-  { max: 7800,     rate: 0.25, ded: 565    },
-  { max: 10900,    rate: 0.30, ded: 955    },
-  { max: Infinity, rate: 0.35, ded: 1500   },
-]
+const EMPTY_FORM = {
+  employee_code: '',
+  full_name: '',
+  email: '',
+  phone: '',
+  tin: '',
+  position: '',
+  department: '',
+  employment_type: 'permanent',
+  start_date: '',
+  basic_salary: '',
+  transport_allowance: '',
+  housing_allowance: '',
+  other_allowance: '',
+  bank_name: '',
+  bank_account: '',
+  pension_number: '',
+};
 
-function calcPreview(basic, allow) {
-  const b = parseFloat(basic) || 0
-  const a = parseFloat(allow) || 0
-  const gross = b + a
-  if (gross <= 0) return null
-  const bracket = BRACKETS.find(br => gross <= br.max)
-  const tax     = Math.round(Math.max(0, (gross * bracket.rate) - bracket.ded) * 100) / 100
-  const pension = Math.round(b * 0.07 * 100) / 100
-  const empPen  = Math.round(b * 0.11 * 100) / 100
-  const net     = Math.round((gross - tax - pension) * 100) / 100
-  const effRate = gross > 0 ? ((tax / gross) * 100).toFixed(1) : 0
-  return { gross, tax, pension, empPen, net, effRate, bracket: `${(bracket.rate*100)}%` }
-}
+export default function NewEmployeePage() {
+  const router = useRouter();
+  const { companyId } = useCompany();
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
-function fmt(n) {
-  return 'ETB ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-// ── Sidebar (shared layout) ────────────────────────────────────
-function Sidebar() {
-  return (
-    <aside className="sidebar" style={{
-      width: '220px', flexShrink: 0, position: 'fixed',
-      top: 0, left: 0, bottom: 0, display: 'flex', flexDirection: 'column',
-    }}>
-      <div style={{ padding: '18px 20px', borderBottom: '1px solid #0d1f12', display: 'flex', alignItems: 'center', gap: '9px' }}>
-        <div style={{ width: '24px', height: '24px', background: '#16a34a', borderRadius: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ color: 'white', fontWeight: '700', fontSize: '11px' }}>H</span>
-        </div>
-        <span style={{ color: 'white', fontWeight: '600', fontSize: '14px' }}>HabeshaPay</span>
-      </div>
-      <nav style={{ flex: 1, padding: '10px' }}>
-        {[
-          { href: '/dashboard',           label: 'Dashboard'  },
-          { href: '/dashboard/employees', label: 'Employees', active: true },
-          { href: '/dashboard/payroll',   label: 'Payroll'    },
-        ].map(l => (
-          <a key={l.href} href={l.href} className={`nav-item${l.active ? ' active' : ''}`}>
-            {l.label}
-          </a>
-        ))}
-      </nav>
-    </aside>
-  )
-}
-
-// ── Input field component ─────────────────────────────────────
-function Field({ label, required, children }) {
-  return (
-    <div>
-      <label className="input-label">
-        {label}{required && <span style={{ color: '#dc2626', marginLeft: '2px' }}>*</span>}
-      </label>
-      {children}
-    </div>
-  )
-}
-
-// ── Main ──────────────────────────────────────────────────────
-export default function NewEmployee() {
-  const router  = useRouter()
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState(null)
-  const [form,    setForm]    = useState({
-    employee_code: '', full_name: '', email: '', phone: '',
-    position: '', department: '', basic_salary: '', allowances: '',
-    bank_account: '', employment_date: '',
-  })
-
-  const preview = calcPreview(form.basic_salary, form.allowances)
-
-  function handleChange(e) {
-    setForm(f => ({ ...f, [e.target.name]: e.target.value }))
-    setError(null)
+  function update(field, value) {
+    setForm((f) => ({ ...f, [field]: value }));
   }
 
-  const handleSubmit = useCallback(async (e) => {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
 
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      const { data: prof }     = await supabase
-        .from('profiles').select('company_id').eq('id', user.id).single()
-
-      if (!prof?.company_id) throw new Error('Company not found. Please sign out and sign in again.')
-
-      const { error: err } = await supabase.from('employees').insert({
-        company_id:      prof.company_id,
-        employee_code:   form.employee_code.trim(),
-        full_name:       form.full_name.trim(),
-        email:           form.email.trim()        || null,
-        phone:           form.phone.trim()        || null,
-        position:        form.position.trim()     || null,
-        department:      form.department.trim()   || null,
-        basic_salary:    parseFloat(form.basic_salary),
-        allowances:      parseFloat(form.allowances) || 0,
-        bank_account:    form.bank_account.trim() || null,
-        employment_date: form.employment_date     || null,
-        status:          'active',
-      })
-
-      if (err) throw err
-      router.push('/dashboard/employees')
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
+    const cleanName = sanitizeText(form.full_name);
+    if (!cleanName) {
+      setError('Full name is required.');
+      return;
     }
-  }, [form, router])
+    if (!companyId) {
+      setError('Could not determine your company. Try refreshing.');
+      return;
+    }
+
+    setSaving(true);
+
+    const payload = {
+      company_id: companyId,
+      employee_code: sanitizeText(form.employee_code) || null,
+      full_name: cleanName,
+      email: sanitizeEmail(form.email) || null,
+      phone: sanitizePhone(form.phone) || null,
+      tin: sanitizeTIN(form.tin) || null,
+      position: sanitizeText(form.position) || null,
+      department: sanitizeText(form.department) || null,
+      employment_type: form.employment_type,
+      start_date: form.start_date || null,
+      basic_salary: sanitizeNumber(form.basic_salary, { min: 0 }),
+      transport_allowance: sanitizeNumber(form.transport_allowance, { min: 0 }),
+      housing_allowance: sanitizeNumber(form.housing_allowance, { min: 0 }),
+      other_allowance: sanitizeNumber(form.other_allowance, { min: 0 }),
+      bank_name: sanitizeText(form.bank_name) || null,
+      bank_account: sanitizeText(form.bank_account) || null,
+      pension_number: sanitizeText(form.pension_number) || null,
+    };
+
+    const { error: insertError } = await supabase.from('employees').insert(payload);
+    setSaving(false);
+
+    if (insertError) {
+      setError(insertError.message);
+      return;
+    }
+
+    router.push('/dashboard/employees');
+  }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: '#f5f4f0' }}>
-      <Sidebar/>
-
-      <main style={{ flex: 1, marginLeft: '220px', padding: '36px 40px' }}>
-        {/* Breadcrumb */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '28px' }}>
-          <a href="/dashboard" style={{ fontSize: '13px', color: '#a8a29e', textDecoration: 'none' }}>
-            Dashboard
-          </a>
-          <span style={{ color: '#e8e5e0' }}>/</span>
-          <a href="/dashboard/employees" style={{ fontSize: '13px', color: '#a8a29e', textDecoration: 'none' }}>
-            Employees
-          </a>
-          <span style={{ color: '#e8e5e0' }}>/</span>
-          <span style={{ fontSize: '13px', color: '#1c1917', fontWeight: '500' }}>Add employee</span>
+    <div>
+      <div className="page-header">
+        <div>
+          <span className="page-eyebrow">HR</span>
+          <h1>Add employee</h1>
         </div>
+      </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '20px', alignItems: 'start' }}>
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
-            {error && <div className="error-box">{error}</div>}
-
-            {/* Basic info card */}
-            <div className="card" style={{ padding: '24px' }}>
-              <p className="section-title" style={{ marginBottom: '4px' }}>Basic information</p>
-              <p className="section-sub" style={{ marginBottom: '20px' }}>Employee details and contact</p>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                <Field label="Employee code" required>
-                  <input className="input" name="employee_code" required
-                    placeholder="EMP-001" value={form.employee_code} onChange={handleChange}/>
-                </Field>
-
-                <Field label="Full name" required>
-                  <input className="input" name="full_name" required
-                    placeholder="Abreham Tesfaye" value={form.full_name} onChange={handleChange}/>
-                </Field>
-
-                <Field label="Email">
-                  <input className="input" name="email" type="email"
-                    placeholder="abreham@company.com" value={form.email} onChange={handleChange}/>
-                </Field>
-
-                <Field label="Phone">
-                  <input className="input" name="phone"
-                    placeholder="+251 91 234 5678" value={form.phone} onChange={handleChange}/>
-                </Field>
-
-                <Field label="Job title">
-                  <input className="input" name="position"
-                    placeholder="Senior Accountant" value={form.position} onChange={handleChange}/>
-                </Field>
-
-                <Field label="Department">
-                  <input className="input" name="department"
-                    placeholder="Finance" value={form.department} onChange={handleChange}/>
-                </Field>
-
-                <Field label="Employment date">
-                  <input className="input" name="employment_date" type="date"
-                    value={form.employment_date} onChange={handleChange}/>
-                </Field>
-
-                <Field label="Bank account">
-                  <input className="input" name="bank_account"
-                    placeholder="1000123456789" value={form.bank_account} onChange={handleChange}/>
-                </Field>
-              </div>
+      <form onSubmit={handleSubmit} style={{ maxWidth: 720 }}>
+        <div className="card" style={{ marginBottom: 20 }}>
+          <h2 className="card-title">Basic information</h2>
+          <div className="grid-2" style={{ gap: 16 }}>
+            <div className="field">
+              <label htmlFor="full_name">Full name</label>
+              <input id="full_name" value={form.full_name} onChange={(e) => update('full_name', e.target.value)} required />
             </div>
-
-            {/* Salary card */}
-            <div className="card" style={{ padding: '24px' }}>
-              <p className="section-title" style={{ marginBottom: '4px' }}>Salary</p>
-              <p className="section-sub" style={{ marginBottom: '20px' }}>
-                Pension is on basic salary only — not allowances
-              </p>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                <Field label="Basic salary (ETB/month)" required>
-                  <input className="input" name="basic_salary" type="number"
-                    required min="1" step="0.01"
-                    placeholder="15000" value={form.basic_salary} onChange={handleChange}/>
-                </Field>
-
-                <Field label="Total allowances (ETB/month)">
-                  <input className="input" name="allowances" type="number"
-                    min="0" step="0.01"
-                    placeholder="3000" value={form.allowances} onChange={handleChange}/>
-                </Field>
-              </div>
+            <div className="field">
+              <label htmlFor="employee_code">Employee code</label>
+              <input id="employee_code" placeholder="EMP-0001" value={form.employee_code} onChange={(e) => update('employee_code', e.target.value)} />
             </div>
-
-            {/* Actions */}
-            <div style={{ display: 'flex', gap: '8px', paddingBottom: '40px' }}>
-              <button type="submit" disabled={loading} className="btn-primary"
-                style={{ padding: '10px 20px' }}>
-                {loading ? 'Saving...' : 'Add employee'}
-              </button>
-              <a href="/dashboard/employees" className="btn-secondary"
-                style={{ padding: '10px 20px' }}>
-                Cancel
-              </a>
+            <div className="field">
+              <label htmlFor="email">Email</label>
+              <input id="email" type="email" value={form.email} onChange={(e) => update('email', e.target.value)} />
             </div>
-          </form>
-
-          {/* Live preview sidebar */}
-          <div style={{ position: 'sticky', top: '36px' }}>
-            <div className="card" style={{ padding: '20px' }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                marginBottom: '16px', paddingBottom: '14px', borderBottom: '1px solid #f0ece8',
-              }}>
-                <p className="section-title">Live payslip preview</p>
-                <span style={{
-                  background: '#f0fdf4', color: '#16a34a',
-                  fontSize: '10px', fontWeight: '600', padding: '2px 7px', borderRadius: '4px',
-                }}>
-                  Real-time
-                </span>
-              </div>
-
-              {!preview ? (
-                <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                  <p style={{ fontSize: '12px', color: '#a8a29e' }}>
-                    Enter a salary to see the payslip preview
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {/* Main figures */}
-                  {[
-                    { label: 'Gross salary',     val: preview.gross,   bold: true  },
-                    { label: 'Income tax (ERCA)', val: preview.tax,    color: '#dc2626' },
-                    { label: 'Employee pension',  val: preview.pension, color: '#d97706' },
-                    { label: 'Net pay',           val: preview.net,    color: '#16a34a', bold: true },
-                  ].map(row => (
-                    <div key={row.label} style={{
-                      display: 'flex', justifyContent: 'space-between',
-                      alignItems: 'center', padding: '8px 0',
-                      borderBottom: '1px solid #faf9f7',
-                    }}>
-                      <p style={{ fontSize: '12px', color: '#78716c' }}>{row.label}</p>
-                      <p style={{
-                        fontSize: '13px',
-                        fontWeight: row.bold ? '600' : '400',
-                        color: row.color || '#1c1917',
-                        fontVariantNumeric: 'tabular-nums',
-                      }}>
-                        {fmt(row.val)}
-                      </p>
-                    </div>
-                  ))}
-
-                  {/* Bracket info */}
-                  <div style={{
-                    marginTop: '14px', padding: '10px 12px',
-                    background: '#f5f4f0', borderRadius: '6px',
-                  }}>
-                    <p style={{ fontSize: '11px', color: '#a8a29e', marginBottom: '4px' }}>
-                      Tax bracket · {preview.bracket} rate
-                    </p>
-                    <p style={{ fontSize: '12px', color: '#57534e' }}>
-                      Effective rate: <strong>{preview.effRate}%</strong>
-                    </p>
-                  </div>
-
-                  {/* Employer cost */}
-                  <div style={{
-                    marginTop: '12px', padding: '10px 12px',
-                    background: '#fffbeb', borderRadius: '6px',
-                    border: '1px solid #fef3c7',
-                  }}>
-                    <p style={{ fontSize: '11px', color: '#92400e', marginBottom: '4px' }}>
-                      Company cost (you pay this)
-                    </p>
-                    <p style={{ fontSize: '13px', fontWeight: '600', color: '#78350f' }}>
-                      {fmt(preview.gross + preview.empPen)}
-                    </p>
-                    <p style={{ fontSize: '11px', color: '#a16207', marginTop: '2px' }}>
-                      Includes employer pension {fmt(preview.empPen)}
-                    </p>
-                  </div>
-                </>
-              )}
+            <div className="field">
+              <label htmlFor="phone">Phone</label>
+              <input id="phone" value={form.phone} onChange={(e) => update('phone', e.target.value)} placeholder="+251 9XX XXX XXX" />
             </div>
-
-            {/* Reminder */}
-            <div style={{
-              marginTop: '12px', padding: '14px 16px',
-              background: 'white', border: '1px solid #e8e5e0',
-              borderRadius: '8px',
-            }}>
-              <p style={{ fontSize: '11px', color: '#a8a29e', lineHeight: '1.5' }}>
-                <strong style={{ color: '#57534e' }}>Pension reminder:</strong> The 7% employee
-                and 11% employer pension is calculated on basic salary only — not on allowances.
-              </p>
+            <div className="field">
+              <label htmlFor="tin">TIN</label>
+              <input id="tin" value={form.tin} onChange={(e) => update('tin', e.target.value)} placeholder="10-digit TIN" />
+            </div>
+            <div className="field">
+              <label htmlFor="start_date">Start date</label>
+              <input id="start_date" type="date" value={form.start_date} onChange={(e) => update('start_date', e.target.value)} />
             </div>
           </div>
-
         </div>
-      </main>
+
+        <div className="card" style={{ marginBottom: 20 }}>
+          <h2 className="card-title">Role</h2>
+          <div className="grid-2" style={{ gap: 16 }}>
+            <div className="field">
+              <label htmlFor="position">Position</label>
+              <input id="position" value={form.position} onChange={(e) => update('position', e.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="department">Department</label>
+              <input id="department" value={form.department} onChange={(e) => update('department', e.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="employment_type">Employment type</label>
+              <select id="employment_type" value={form.employment_type} onChange={(e) => update('employment_type', e.target.value)}>
+                <option value="permanent">Permanent</option>
+                <option value="contract">Contract</option>
+                <option value="probation">Probation</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 20 }}>
+          <h2 className="card-title">Compensation (ETB / month)</h2>
+          <div className="grid-2" style={{ gap: 16 }}>
+            <div className="field">
+              <label htmlFor="basic_salary">Basic salary</label>
+              <input id="basic_salary" type="number" min="0" step="0.01" value={form.basic_salary} onChange={(e) => update('basic_salary', e.target.value)} required />
+            </div>
+            <div className="field">
+              <label htmlFor="transport_allowance">Transport allowance</label>
+              <input id="transport_allowance" type="number" min="0" step="0.01" value={form.transport_allowance} onChange={(e) => update('transport_allowance', e.target.value)} />
+              <span className="field-hint">Up to ETB 2,200 is non-taxable.</span>
+            </div>
+            <div className="field">
+              <label htmlFor="housing_allowance">Housing allowance</label>
+              <input id="housing_allowance" type="number" min="0" step="0.01" value={form.housing_allowance} onChange={(e) => update('housing_allowance', e.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="other_allowance">Other allowance</label>
+              <input id="other_allowance" type="number" min="0" step="0.01" value={form.other_allowance} onChange={(e) => update('other_allowance', e.target.value)} />
+            </div>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 20 }}>
+          <h2 className="card-title">Banking & pension</h2>
+          <div className="grid-2" style={{ gap: 16 }}>
+            <div className="field">
+              <label htmlFor="bank_name">Bank name</label>
+              <input id="bank_name" value={form.bank_name} onChange={(e) => update('bank_name', e.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="bank_account">Bank account number</label>
+              <input id="bank_account" value={form.bank_account} onChange={(e) => update('bank_account', e.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="pension_number">Pension number</label>
+              <input id="pension_number" value={form.pension_number} onChange={(e) => update('pension_number', e.target.value)} />
+            </div>
+          </div>
+        </div>
+
+        {error && <p className="field-error" style={{ marginBottom: 16 }}>{error}</p>}
+
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button type="submit" className="btn btn-primary" disabled={saving}>
+            {saving ? 'Saving…' : 'Save employee'}
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => router.push('/dashboard/employees')}>
+            Cancel
+          </button>
+        </div>
+      </form>
     </div>
-  )
+  );
 }
