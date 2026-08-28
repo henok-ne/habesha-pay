@@ -1,4 +1,5 @@
 /** @type {import('next').NextConfig} */
+const isDevelopment = process.env.NODE_ENV === 'development';
 
 // Content-Security-Policy: this is the backbone of the "impossible to hack"
 // requirement. Every directive here closes a specific attack class.
@@ -13,7 +14,7 @@
 // only relevant to webpack's dev-mode hot reload — so it's removed below.
 const ContentSecurityPolicy = `
   default-src 'self';
-  script-src 'self' 'unsafe-inline';
+  script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ''};
   style-src 'self' 'unsafe-inline';
   img-src 'self' data: blob: https://*.supabase.co;
   font-src 'self' data:;

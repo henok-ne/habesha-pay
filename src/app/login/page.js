@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { signIn } from 'next-auth/react';
 import { sanitizeEmail } from '@/lib/sanitize';
 
 export default function LoginPage() {
@@ -18,29 +18,35 @@ export default function LoginPage() {
     setError('');
 
     const cleanEmail = sanitizeEmail(email);
+
     if (!cleanEmail) {
       setError('Enter a valid email address.');
       return;
     }
+
     if (!password) {
       setError('Enter your password.');
       return;
     }
 
     setLoading(true);
-    const { error: signInError } = await supabase.auth.signInWithPassword({
+
+    const result = await signIn('credentials', {
       email: cleanEmail,
       password,
+      redirect: false,
     });
+
     setLoading(false);
 
-    if (signInError) {
-      // Deliberately generic — never confirm whether the email exists.
+    if (!result || result.error) {
+      // Keep the same generic error behavior as the original login.
       setError('Incorrect email or password.');
       return;
     }
 
     router.push('/dashboard');
+    router.refresh();
   }
 
   return (
@@ -56,20 +62,36 @@ export default function LoginPage() {
     >
       <div style={{ width: '100%', maxWidth: 380 }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <Link href="/" className="font-display" style={{ fontSize: 24, color: 'var(--ink)', textDecoration: 'none' }}>
+          <Link
+            href="/"
+            className="font-display"
+            style={{
+              fontSize: 24,
+              color: 'var(--ink)',
+              textDecoration: 'none',
+            }}
+          >
             EthioPayroll
           </Link>
         </div>
 
         <div className="card">
           <h1 style={{ fontSize: 20, marginBottom: 4 }}>Log in</h1>
-          <p style={{ fontSize: 13, color: '#6b6355', marginBottom: 24 }}>
+
+          <p
+            style={{
+              fontSize: 13,
+              color: '#6b6355',
+              marginBottom: 24,
+            }}
+          >
             Enter your company account credentials.
           </p>
 
           <form onSubmit={handleSubmit}>
             <div className="field">
               <label htmlFor="email">Email</label>
+
               <input
                 id="email"
                 type="email"
@@ -82,6 +104,7 @@ export default function LoginPage() {
 
             <div className="field">
               <label htmlFor="password">Password</label>
+
               <input
                 id="password"
                 type="password"
@@ -92,17 +115,42 @@ export default function LoginPage() {
               />
             </div>
 
-            {error && <p className="field-error" style={{ marginBottom: 16 }}>{error}</p>}
+            {error && (
+              <p
+                className="field-error"
+                style={{ marginBottom: 16 }}
+              >
+                {error}
+              </p>
+            )}
 
-            <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={loading}>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              style={{
+                width: '100%',
+                justifyContent: 'center',
+              }}
+              disabled={loading}
+            >
               {loading ? 'Logging in…' : 'Log in'}
             </button>
           </form>
         </div>
 
-        <p style={{ textAlign: 'center', fontSize: 13, color: '#6b6355', marginTop: 20 }}>
+        <p
+          style={{
+            textAlign: 'center',
+            fontSize: 13,
+            color: '#6b6355',
+            marginTop: 20,
+          }}
+        >
           Don&apos;t have an account?{' '}
-          <Link href="/signup" style={{ color: 'var(--forest)' }}>
+          <Link
+            href="/signup"
+            style={{ color: 'var(--forest)' }}
+          >
             Create one
           </Link>
         </p>
