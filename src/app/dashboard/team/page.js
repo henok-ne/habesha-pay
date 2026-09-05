@@ -1,188 +1,344 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { supabase } from '@/lib/supabase';
-import { useCompany } from '@/hooks/useCompany';
+import { useEffect, useState } from 'react';
 
 const ROLES = [
-  { value: 'admin', label: 'Admin', desc: 'Full access to everything' },
-  { value: 'hr', label: 'HR', desc: 'Employees, leave, overtime, offer letters' },
-  { value: 'finance', label: 'Finance', desc: 'Payroll, contractors, reports' },
-  { value: 'viewer', label: 'Viewer', desc: 'Read-only access' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'hr', label: 'HR' },
+  { value: 'finance', label: 'Finance' },
+  { value: 'viewer', label: 'Viewer' },
 ];
 
 export default function TeamPage() {
-  const { companyId, profile, role, loading: companyLoading } = useCompany();
   const [members, setMembers] = useState([]);
+  const [invites, setInvites] = useState([]);
+  const [currentRole, setCurrentRole] = useState('');
+  const [currentUserId, setCurrentUserId] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [inviteRole, setInviteRole] = useState('viewer');
-  const [inviting, setInviting] = useState(false);
+  const [savingMemberId, setSavingMemberId] = useState(null);
 
-  const load = useCallback(async () => {
-    if (!companyId) return;
-    const { data } = await supabase.from('profiles').select('*').eq('company_id', companyId).order('created_at');
-    setMembers(data || []);
-    setLoading(false);
-  }, [companyId]);
+  const [email, setEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('viewer');
+  const [creatingInvite, setCreatingInvite] = useState(false);
+
+  async function loadTeam() {
+    try {
+      setLoading(true);
+
+      const response = await fetch('/api/team', {
+        cache: 'no-store',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Unable to load team.');
+      }
+
+      setMembers(data.members || []);
+      setInvites(data.invites || []);
+      setCurrentRole(data.role || '');
+      setCurrentUserId(data.currentUserId || '');
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    load();
-  }, [load]);
+    loadTeam();
+  }, []);
 
-  async function handleRoleChange(memberId, newRole) {
-    setError('');
-    const { error: updateError } = await supabase.from('profiles').update({ role: newRole }).eq('id', memberId).eq('company_id', companyId);
-    if (updateError) {
-      setError(updateError.message);
-      return;
+  async function changeRole(memberId, role) {
+    try {
+      setSavingMemberId(memberId);
+
+      const response = await fetch('/api/team', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          memberId,
+          role,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Unable to update role.');
+      }
+
+      setMembers((previousMembers) =>
+        previousMembers.map((member) =>
+          member.id === memberId
+            ? {
+                ...member,
+                role: data.member.role,
+              }
+            : member
+        )
+      );
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setSavingMemberId(null);
     }
-    load();
   }
 
-  async function handleGenerateInvite() {
-    setError('');
-    setInviting(true);
+  async function createInvitation(event) {
+    event.preventDefault();
 
-    // Same shape as the employee portal token: a random opaque credential,
-    // not a guessable id+timestamp combination.
-    const token = crypto.randomUUID() + crypto.randomUUID();
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 14);
-
-    const { error: inviteError } = await supabase.from('team_invites').insert({
-      token,
-      company_id: companyId,
-      role: inviteRole,
-      created_by: profile?.id,
-      expires_at: expiresAt.toISOString(),
-    });
-
-    setInviting(false);
-
-    if (inviteError) {
-      setError(inviteError.message);
+    if (!email.trim()) {
+      alert('Please enter an email address.');
       return;
     }
 
-    const link = `${window.location.origin}/signup?invite=${token}`;
-    await navigator.clipboard.writeText(link);
-    alert(`Invite link copied to clipboard (role: ${inviteRole}). It expires in 14 days and works once.`);
+    try {
+      setCreatingInvite(true);
+
+      const response = await fetch('/api/team', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          role: inviteRole,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Unable to create invitation.');
+      }
+
+      const invitationLink = data.invite.invitationLink;
+
+      await navigator.clipboard.writeText(invitationLink);
+
+      alert(
+        `Invitation created and copied to your clipboard.\n\n${invitationLink}`
+      );
+
+      setEmail('');
+      setInviteRole('viewer');
+
+      await loadTeam();
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setCreatingInvite(false);
+    }
   }
 
-  const isAdmin = role === 'admin';
+  function formatDate(date) {
+    if (!date) return '—';
 
-  if (companyLoading || loading) {
-    return <p className="font-num" style={{ color: '#6b6355' }}>Loading…</p>;
+    return new Date(date).toLocaleDateString();
+  }
+
+  function getRoleLabel(role) {
+    return (
+      ROLES.find((item) => item.value === role)?.label || role
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="p-6">
+        <p>Loading team members...</p>
+      </div>
+    );
   }
 
   return (
-    <div>
-      <div className="page-header">
-        <div>
-          <span className="page-eyebrow">HR</span>
-          <h1>Team</h1>
+    <div className="space-y-8 p-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Team</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Manage your company members and invitations.
+        </p>
+      </div>
+
+      {currentRole === 'admin' && (
+        <section className="rounded-lg border bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-semibold">Invite team member</h2>
+
+          <form
+            onSubmit={createInvitation}
+            className="mt-4 grid gap-4 md:grid-cols-[1fr_180px_auto]"
+          >
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="employee@example.com"
+              className="rounded-md border px-3 py-2"
+              required
+            />
+
+            <select
+              value={inviteRole}
+              onChange={(event) => setInviteRole(event.target.value)}
+              className="rounded-md border px-3 py-2"
+            >
+              {ROLES.filter((role) => role.value !== 'admin').map(
+                (role) => (
+                  <option key={role.value} value={role.value}>
+                    {role.label}
+                  </option>
+                )
+              )}
+            </select>
+
+            <button
+              type="submit"
+              disabled={creatingInvite}
+              className="rounded-md bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
+            >
+              {creatingInvite ? 'Creating...' : 'Create invite'}
+            </button>
+          </form>
+        </section>
+      )}
+
+      <section className="rounded-lg border bg-white shadow-sm">
+        <div className="border-b p-6">
+          <h2 className="text-lg font-semibold">Team members</h2>
         </div>
-      </div>
 
-      <div className="card" style={{ marginBottom: 20 }}>
-        <h2 className="card-title">Invite teammates</h2>
-        {isAdmin ? (
-          <>
-            <p style={{ fontSize: 14, color: '#4a4438', marginBottom: 16 }}>
-              Generate a one-time link for a specific role. Send it to them yourself (email, Slack, WhatsApp) —
-              anyone with the link can join your company workspace at that role, so treat it like a password.
-            </p>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <select
-                value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value)}
-                style={{ padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sharp)', fontSize: 14 }}
-              >
-                {ROLES.map((r) => (
-                  <option key={r.value} value={r.value}>{r.label}</option>
-                ))}
-              </select>
-              <button className="btn btn-primary" onClick={handleGenerateInvite} disabled={inviting}>
-                {inviting ? 'Generating…' : 'Generate invite link'}
-              </button>
-            </div>
-          </>
-        ) : (
-          <p style={{ fontSize: 14, color: '#4a4438', marginBottom: 0 }}>
-            Only admins can invite new teammates. Ask an admin on your team to send you an invite link if you need
-            to add someone.
+        {members.length === 0 ? (
+          <p className="p-6 text-sm text-gray-500">
+            No team members found.
           </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[650px]">
+              <thead className="border-b bg-gray-50 text-left text-sm">
+                <tr>
+                  <th className="px-6 py-3">Name</th>
+                  <th className="px-6 py-3">Email</th>
+                  <th className="px-6 py-3">Role</th>
+                  <th className="px-6 py-3">Joined</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {members.map((member) => {
+                  const isCurrentUser =
+                    member.id === currentUserId;
+
+                  return (
+                    <tr key={member.id} className="border-b last:border-0">
+                      <td className="px-6 py-4 font-medium">
+                        {member.fullName}
+                        {isCurrentUser && (
+                          <span className="ml-2 text-xs text-gray-500">
+                            You
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        {member.email}
+                      </td>
+
+                      <td className="px-6 py-4">
+                        {currentRole === 'admin' && !isCurrentUser ? (
+                          <select
+                            value={member.role}
+                            disabled={savingMemberId === member.id}
+                            onChange={(event) =>
+                              changeRole(
+                                member.id,
+                                event.target.value
+                              )
+                            }
+                            className="rounded-md border px-3 py-2 text-sm"
+                          >
+                            {ROLES.map((role) => (
+                              <option
+                                key={role.value}
+                                value={role.value}
+                              >
+                                {role.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-sm">
+                            {getRoleLabel(member.role)}
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        {formatDate(member.createdAt)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
-      </div>
+      </section>
 
-      {error && <p className="field-error" style={{ marginBottom: 16 }}>{error}</p>}
+      {currentRole === 'admin' && (
+        <section className="rounded-lg border bg-white shadow-sm">
+          <div className="border-b p-6">
+            <h2 className="text-lg font-semibold">Pending invitations</h2>
+          </div>
 
-      <div className="card">
-        <h2 className="card-title">Members ({members.length})</h2>
-        <div className="table-scroll">
-<table className="data-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Role</th>
-              <th>Joined</th>
-              {isAdmin && <th>Change role</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {members.map((member) => (
-              <tr key={member.id}>
-                <td>
-                  {member.full_name}
-                  {member.id === profile?.id && <span style={{ fontSize: 12, color: '#6b6355' }}> (you)</span>}
-                </td>
-                <td>
-                  <span className="badge badge-active" style={{ textTransform: 'capitalize' }}>{member.role}</span>
-                </td>
-                <td>{new Date(member.created_at).toLocaleDateString()}</td>
-                {isAdmin && (
-                  <td>
-                    <select
-                      value={member.role}
-                      onChange={(e) => handleRoleChange(member.id, e.target.value)}
-                      disabled={member.id === profile?.id}
-                      style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sharp)', fontSize: 13 }}
+          {invites.length === 0 ? (
+            <p className="p-6 text-sm text-gray-500">
+              No pending invitations.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[600px]">
+                <thead className="border-b bg-gray-50 text-left text-sm">
+                  <tr>
+                    <th className="px-6 py-3">Email</th>
+                    <th className="px-6 py-3">Role</th>
+                    <th className="px-6 py-3">Expires</th>
+                    <th className="px-6 py-3">Created</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {invites.map((invite) => (
+                    <tr
+                      key={invite.id}
+                      className="border-b last:border-0"
                     >
-                      {ROLES.map((r) => (
-                        <option key={r.value} value={r.value}>{r.label}</option>
-                      ))}
-                    </select>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-</div>
-      </div>
+                      <td className="px-6 py-4 text-sm">
+                        {invite.email}
+                      </td>
 
-      <div className="card" style={{ marginTop: 20 }}>
-        <h2 className="card-title">Role permissions</h2>
-        <div className="table-scroll">
-<table className="data-table">
-          <thead>
-            <tr>
-              <th>Role</th>
-              <th>Access</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ROLES.map((r) => (
-              <tr key={r.value}>
-                <td style={{ fontWeight: 600 }}>{r.label}</td>
-                <td>{r.desc}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-</div>
-      </div>
+                      <td className="px-6 py-4 text-sm">
+                        {getRoleLabel(invite.role)}
+                      </td>
+
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        {formatDate(invite.expiresAt)}
+                      </td>
+
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        {formatDate(invite.createdAt)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

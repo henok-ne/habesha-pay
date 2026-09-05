@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { signOut } from 'next-auth/react';
 import {
   LayoutDashboard,
   Users,
@@ -31,7 +31,7 @@ const NAV_SECTIONS = [
       { href: '/dashboard/team', label: 'Team', icon: UserCog },
       { href: '/dashboard/leave', label: 'Leave', icon: CalendarDays },
       { href: '/dashboard/overtime', label: 'Overtime', icon: Clock },
-      { href: '/dashboard/offer-letter', label: 'Offer Letters', icon: FileText },
+      { href: '/dashboard/offer-letters', label: 'Offer Letters', icon: FileText },
     ],
   },
   {
@@ -52,16 +52,15 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
   const pathname = usePathname();
   const router = useRouter();
 
-  // Closing on navigation means a tap on a link doesn't leave the drawer
-  // open over the new page underneath it.
   useEffect(() => {
     onClose();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
   async function handleSignOut() {
-    await supabase.auth.signOut();
-    router.push('/login');
+    await signOut({
+      callbackUrl: '/login',
+    });
   }
 
   function isActive(href) {
@@ -71,10 +70,28 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
 
   return (
     <>
-      {mobileOpen && <div className="sidebar-overlay" onClick={onClose} aria-hidden="true" />}
-      <nav className={`sidebar${mobileOpen ? ' sidebar-open' : ''}`} aria-label="Main navigation">
-        <div className="sidebar-brand" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      {mobileOpen && (
+        <div
+          className="sidebar-overlay"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+
+      <nav
+        className={`sidebar${mobileOpen ? ' sidebar-open' : ''}`}
+        aria-label="Main navigation"
+      >
+        <div
+          className="sidebar-brand"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
           <span>EthioPayroll</span>
+
           <button
             type="button"
             className="sidebar-close-btn"
@@ -88,17 +105,26 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {NAV_SECTIONS.map((section) => (
             <div key={section.label}>
-              <div className="sidebar-section-label">{section.label}</div>
+              <div className="sidebar-section-label">
+                {section.label}
+              </div>
+
               {section.links.map((link) => {
                 const Icon = link.icon;
+                const active = isActive(link.href);
+
                 return (
                   <Link
                     key={link.href}
                     href={link.href}
-                    className={`sidebar-link${isActive(link.href) ? ' active' : ''}`}
-                    aria-current={isActive(link.href) ? 'page' : undefined}
+                    className={`sidebar-link${active ? ' active' : ''}`}
+                    aria-current={active ? 'page' : undefined}
                   >
-                    <Icon size={16} strokeWidth={1.75} style={{ flexShrink: 0 }} />
+                    <Icon
+                      size={16}
+                      strokeWidth={1.75}
+                      style={{ flexShrink: 0 }}
+                    />
                     {link.label}
                   </Link>
                 );
@@ -107,11 +133,21 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
           ))}
         </div>
 
-        <div style={{ padding: '16px 24px 0 24px', borderTop: '1px solid rgba(246,243,236,0.15)' }}>
+        <div
+          style={{
+            padding: '16px 24px 0 24px',
+            borderTop: '1px solid rgba(246,243,236,0.15)',
+          }}
+        >
           <button
+            type="button"
             onClick={handleSignOut}
             className="btn btn-ghost"
-            style={{ color: 'var(--parchment)', width: '100%', justifyContent: 'flex-start' }}
+            style={{
+              color: 'var(--parchment)',
+              width: '100%',
+              justifyContent: 'flex-start',
+            }}
           >
             <LogOut size={15} strokeWidth={1.75} />
             Sign out

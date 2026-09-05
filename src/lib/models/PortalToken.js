@@ -2,10 +2,10 @@ import mongoose from 'mongoose';
 
 const portalTokenSchema = new mongoose.Schema(
   {
-    companyId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Company',
+    token: {
+      type: String,
       required: true,
+      unique: true,
       index: true,
     },
 
@@ -16,10 +16,11 @@ const portalTokenSchema = new mongoose.Schema(
       index: true,
     },
 
-    tokenHash: {
-      type: String,
+    companyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Company',
       required: true,
-      unique: true,
+      index: true,
     },
 
     expiresAt: {
@@ -28,7 +29,10 @@ const portalTokenSchema = new mongoose.Schema(
       index: true,
     },
 
-    usedAt: Date,
+    usedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

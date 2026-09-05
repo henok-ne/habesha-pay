@@ -42,7 +42,10 @@ const payslipSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-
+overtimePay: {
+  type: Number,
+  default: 0,
+},
     grossSalary: {
       type: Number,
       default: 0,

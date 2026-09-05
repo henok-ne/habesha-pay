@@ -86,3 +86,104 @@ export async function GET() {
     );
   }
 }
+
+export async function PATCH(request) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Not authenticated.',
+        },
+        { status: 401 }
+      );
+    }
+
+    await connectDB();
+
+    const user = await User.findById(session.user.id)
+      .select('-passwordHash')
+      .lean();
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'User not found.',
+        },
+        { status: 404 }
+      );
+    }
+
+    if (user.role !== 'admin') {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Only admins can update company settings.',
+        },
+        { status: 403 }
+      );
+    }
+
+    const body = await request.json();
+
+    const pensionScheme = body.pension_scheme || 'private';
+
+    if (!['private', 'government'].includes(pensionScheme)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Invalid pension scheme.',
+        },
+        { status: 400 }
+      );
+    }
+
+    const updatedCompany = await Company.findByIdAndUpdate(
+      user.companyId,
+      {
+        name: body.name,
+        tin: body.tin || null,
+        address: body.address || null,
+        city: body.city || null,
+        phone: body.phone || null,
+        pensionScheme,
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    ).lean();
+
+    if (!updatedCompany) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Company not found.',
+        },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Company settings updated successfully.',
+      company: {
+        ...updatedCompany,
+        _id: updatedCompany._id.toString(),
+      },
+    });
+  } catch (error) {
+    console.error('Company update API error:', error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        message: 'Unable to update company settings.',
+      },
+      { status: 500 }
+    );
+  }
+}

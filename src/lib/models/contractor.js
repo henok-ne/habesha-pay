@@ -20,6 +20,11 @@ const contractorSchema = new mongoose.Schema(
       trim: true,
     },
 
+    companyName: {
+      type: String,
+      trim: true,
+    },
+
     email: {
       type: String,
       trim: true,
@@ -45,6 +50,19 @@ const contractorSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 0,
+    },
+
+    rateType: {
+      type: String,
+      enum: ['fixed', 'hourly', 'per_project'],
+      default: 'fixed',
+    },
+
+    withholdingTaxRate: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 2,
     },
 
     startDate: Date,

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+
 import { useCompany } from '@/hooks/useCompany';
 import { sanitizeText, sanitizeEmail, sanitizePhone, sanitizeNumber, sanitizeTIN } from '@/lib/sanitize';
 
@@ -37,51 +37,107 @@ export default function NewEmployeePage() {
   }
 
   async function handleSubmit(e) {
-    e.preventDefault();
-    setError('');
+  e.preventDefault();
+  setError('');
 
-    const cleanName = sanitizeText(form.full_name);
-    if (!cleanName) {
-      setError('Full name is required.');
-      return;
-    }
-    if (!companyId) {
-      setError('Could not determine your company. Try refreshing.');
-      return;
-    }
+  const cleanName = sanitizeText(form.full_name);
 
-    setSaving(true);
+  if (!cleanName) {
+    setError('Full name is required.');
+    return;
+  }
 
+  if (!companyId) {
+    setError('Could not determine your company. Try refreshing.');
+    return;
+  }
+
+  setSaving(true);
+
+  try {
     const payload = {
-      company_id: companyId,
-      employee_code: sanitizeText(form.employee_code) || null,
-      full_name: cleanName,
-      email: sanitizeEmail(form.email) || null,
-      phone: sanitizePhone(form.phone) || null,
-      tin: sanitizeTIN(form.tin) || null,
-      position: sanitizeText(form.position) || null,
-      department: sanitizeText(form.department) || null,
-      employment_type: form.employment_type,
-      start_date: form.start_date || null,
-      basic_salary: sanitizeNumber(form.basic_salary, { min: 0 }),
-      transport_allowance: sanitizeNumber(form.transport_allowance, { min: 0 }),
-      housing_allowance: sanitizeNumber(form.housing_allowance, { min: 0 }),
-      other_allowance: sanitizeNumber(form.other_allowance, { min: 0 }),
-      bank_name: sanitizeText(form.bank_name) || null,
-      bank_account: sanitizeText(form.bank_account) || null,
-      pension_number: sanitizeText(form.pension_number) || null,
+      employeeCode:
+        sanitizeText(form.employee_code) || undefined,
+
+      fullName: cleanName,
+
+      email:
+        sanitizeEmail(form.email) || undefined,
+
+      phone:
+        sanitizePhone(form.phone) || undefined,
+
+      tin:
+        sanitizeTIN(form.tin) || undefined,
+
+      position:
+        sanitizeText(form.position) || undefined,
+
+      department:
+        sanitizeText(form.department) || undefined,
+
+      employmentType: form.employment_type,
+
+      startDate:
+        form.start_date || undefined,
+
+      basicSalary: sanitizeNumber(
+        form.basic_salary,
+        { min: 0 }
+      ),
+
+      transportAllowance: sanitizeNumber(
+        form.transport_allowance,
+        { min: 0 }
+      ),
+
+      housingAllowance: sanitizeNumber(
+        form.housing_allowance,
+        { min: 0 }
+      ),
+
+      otherAllowance: sanitizeNumber(
+        form.other_allowance,
+        { min: 0 }
+      ),
+
+      bankName:
+        sanitizeText(form.bank_name) || undefined,
+
+      bankAccount:
+        sanitizeText(form.bank_account) || undefined,
+
+      pensionNumber:
+        sanitizeText(form.pension_number) || undefined,
     };
 
-    const { error: insertError } = await supabase.from('employees').insert(payload);
-    setSaving(false);
+    const response = await fetch('/api/employees', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
 
-    if (insertError) {
-      setError(insertError.message);
-      return;
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(
+        result.message || 'Unable to create employee.'
+      );
     }
 
     router.push('/dashboard/employees');
+  } catch (err) {
+    console.error('Create employee error:', err);
+
+    setError(
+      err.message || 'Unable to create employee.'
+    );
+  } finally {
+    setSaving(false);
   }
+}
 
   return (
     <div>

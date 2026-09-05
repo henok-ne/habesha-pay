@@ -5,10 +5,10 @@ import { authOptions } from '@/auth';
 import { connectDB } from '@/lib/mongodb';
 
 import User from '@/lib/models/User';
-import Employee from '@/lib/models/employee';
-import Contractor from '@/lib/models/contractor';
+import Employee from '@/lib/models/Employee';
+import Contractor from '@/lib/models/Contractor';
 import PayrollRun from '@/lib/models/PayrollRun';
-import LeaveRequest from '@/lib/models/leaverequest';
+import LeaveRequest from '@/lib/models/LeaveRequest';
 import OvertimeEntry from '@/lib/models/OvertimeEntry';
 
 export async function GET() {

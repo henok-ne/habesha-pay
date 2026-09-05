@@ -1,184 +1,748 @@
 # EthioPayroll — Setup Guide
 
-A complete payroll, HR, and compliance platform built for Ethiopian
-businesses. This guide gets you from a downloaded folder to a running app.
+A payroll, HR, and compliance platform built for Ethiopian businesses using **Next.js, MongoDB, and Mongoose**.
 
-## What you need before starting
-
-- **Node.js 18.17 or later** — check with `node -v`
-- **A free Supabase account** — https://supabase.com
-- **A code editor** (VS Code recommended)
-- **Git** (only needed if you plan to deploy via GitHub + Vercel)
+This guide explains how to set up the project locally and deploy it.
 
 ---
 
-## Step 1 — Install dependencies
+## What you need before starting
 
-Open a terminal in this folder and run:
+* **Node.js 18.17 or later**
+* **MongoDB Atlas account** or a local MongoDB installation
+* **VS Code** or another code editor
+* **Git** — only required if you plan to deploy through GitHub
+* A modern web browser
+
+Check your Node.js version:
+
+```bash
+node -v
+```
+
+You should see version `18.17` or newer.
+
+---
+
+# Step 1 — Install dependencies
+
+Open a terminal in the project folder:
 
 ```bash
 npm install
 ```
 
----
-
-## Step 2 — Create your Supabase project
-
-1. Go to https://supabase.com/dashboard and click **New project**.
-2. Choose a name, a database password (save it somewhere safe), and a
-   region close to your users (e.g. an EU region if you're in Ethiopia —
-   Supabase does not currently have an Africa region).
-3. Wait about two minutes for the project to finish provisioning.
+If you are starting from a fresh installation, this will install all required dependencies.
 
 ---
 
-## Step 3 — Run the database setup script
+# Step 2 — Create a MongoDB database
 
-1. In your Supabase project, open **SQL Editor** in the left sidebar.
-2. Click **New query**.
-3. Open `SUPABASE_FULL_SETUP.sql` from this folder, copy the entire file,
-   and paste it into the SQL Editor.
-4. Click **Run**.
+You can use either:
 
-This creates all 12 tables (companies, profiles, employees, contractors,
-payroll_runs, payslips, leave_requests, overtime_entries, offer_letters,
-portal_tokens, team_invites, audit_log), every index, every Row Level
-Security policy that keeps one company's data invisible to another, and two
-`SECURITY DEFINER` functions (`create_company_and_profile`,
-`accept_team_invite`) that are the *only* way a `profiles` row can come into
-existence — the client can never insert one directly, which is what closes
-off a company-hopping bug an earlier version of this schema had (see the
-comments above the `profiles` policies in the SQL file if you want the full
-story). It is safe to run more than once — every statement uses
-`if not exists`, `create or replace`, or `drop ... if exists` first.
+* MongoDB Atlas — recommended for development and deployment
+* A local MongoDB server
 
----
+## Option A — MongoDB Atlas
 
-## Step 4 — Get your API keys
+Go to:
 
-1. In Supabase, go to **Settings → API**.
-2. You'll need three values:
-   - **Project URL** → this is `NEXT_PUBLIC_SUPABASE_URL`
-   - **anon public key** → this is `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - **service_role key** → this is `SUPABASE_SERVICE_ROLE_KEY`
+https://www.mongodb.com/atlas
 
-The **service_role key is secret** — it bypasses all security rules. It is
-only used in one server-side file (`src/app/api/portal/[token]/route.js`)
-to power the employee self-service portal, which has no login of its own.
-Never put this key in a `NEXT_PUBLIC_` variable, never commit it to Git,
-and never share it.
+Create an account and create a new project.
 
----
+Then:
 
-## Step 5 — Configure environment variables
+1. Create a free MongoDB cluster.
+2. Create a database user.
+3. Choose a username and password.
+4. Add your current IP address under **Network Access**.
+5. Go to **Database → Connect**.
+6. Select **Drivers**.
+7. Copy the MongoDB connection string.
 
-1. Copy `.env.local.example` to a new file named `.env.local`:
+It will look similar to:
 
-   ```bash
-   cp .env.local.example .env.local
-   ```
+```text
+mongodb+srv://USERNAME:PASSWORD@CLUSTER.mongodb.net/ethio_payroll?retryWrites=true&w=majority
+```
 
-2. Open `.env.local` and paste in your three values from Step 4.
+Replace:
 
-3. (Optional) Generate a random string for `PORTAL_TOKEN_SECRET`:
+* `USERNAME` with your MongoDB database username.
+* `PASSWORD` with your MongoDB database password.
+* `CLUSTER` with your MongoDB cluster hostname.
 
-   ```bash
-   openssl rand -base64 32
-   ```
+If your password contains special characters such as `@`, `#`, `/`, `:`, or `%`, URL-encode the password before putting it in the connection string.
 
 ---
 
-## Step 6 — Run it locally
+## Option B — Local MongoDB
+
+If MongoDB is installed locally, your connection string can be:
+
+```text
+mongodb://127.0.0.1:27017/ethio_payroll
+```
+
+The application will create the required collections as data is inserted.
+
+---
+
+# Step 3 — Configure environment variables
+
+Create a file named:
+
+```text
+.env.local
+```
+
+in the root of the project.
+
+You can start from the example file:
+
+```bash
+cp .env.local.example .env.local
+```
+
+On Windows PowerShell, you can also simply copy the file manually:
+
+```text
+.env.local.example
+        ↓
+.env.local
+```
+
+Open `.env.local` and configure the following variables:
+
+```env
+MONGODB_URI=mongodb+srv://USERNAME:PASSWORD@CLUSTER.mongodb.net/ethio_payroll?retryWrites=true&w=majority
+
+AUTH_SECRET=your-long-random-secret
+
+PORTAL_TOKEN_SECRET=your-long-random-portal-secret
+
+NEXTAUTH_URL=http://localhost:3000
+```
+
+### `MONGODB_URI`
+
+This is the connection string for your MongoDB database.
+
+Example:
+
+```env
+MONGODB_URI=mongodb+srv://myuser:mypassword@cluster0.xxxxx.mongodb.net/ethio_payroll?retryWrites=true&w=majority
+```
+
+Do **not** use the example credentials above.
+
+---
+
+### `AUTH_SECRET`
+
+This secret is used to protect authentication/session data.
+
+Generate a strong random value.
+
+For example, with OpenSSL:
+
+```bash
+openssl rand -base64 32
+```
+
+Then put the generated value into:
+
+```env
+AUTH_SECRET=YOUR_GENERATED_SECRET
+```
+
+---
+
+### `PORTAL_TOKEN_SECRET`
+
+This secret is used to protect employee portal tokens.
+
+Generate another random value:
+
+```bash
+openssl rand -base64 32
+```
+
+Then add it:
+
+```env
+PORTAL_TOKEN_SECRET=YOUR_GENERATED_SECRET
+```
+
+Use a **different value** from `AUTH_SECRET`.
+
+---
+
+### `NEXTAUTH_URL`
+
+For local development:
+
+```env
+NEXTAUTH_URL=http://localhost:3000
+```
+
+When deploying, change this to your production URL.
+
+For example:
+
+```env
+NEXTAUTH_URL=https://your-domain.com
+```
+
+---
+
+# Step 4 — Verify your environment file
+
+Your `.env.local` should contain something similar to:
+
+```env
+MONGODB_URI=mongodb+srv://USERNAME:PASSWORD@CLUSTER.mongodb.net/ethio_payroll?retryWrites=true&w=majority
+
+AUTH_SECRET=your-auth-secret
+
+PORTAL_TOKEN_SECRET=your-portal-token-secret
+
+NEXTAUTH_URL=http://localhost:3000
+```
+
+### Important
+
+Do **not** commit `.env.local` to Git.
+
+The project already includes `.env*.local` in `.gitignore`.
+
+Never share:
+
+* MongoDB passwords
+* `MONGODB_URI`
+* `AUTH_SECRET`
+* `PORTAL_TOKEN_SECRET`
+* private API keys
+* production credentials
+
+---
+
+# Step 5 — Start the application
+
+Run:
 
 ```bash
 npm run dev
 ```
 
-Open http://localhost:3000 in your browser. You should see the landing
-page. Click **Start free trial** to create your company account.
+You should see something similar to:
+
+```text
+Ready in ...
+Local: http://localhost:3000
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+in your browser.
 
 ---
 
-## Step 7 — Deploy (optional)
+# Step 6 — Create your first company account
 
-The easiest path is **Vercel** (free tier is enough to start):
+From the landing page:
 
-1. Push this folder to a GitHub repository.
-2. Go to https://vercel.com, click **New Project**, and import your repo.
-3. In the Vercel project's **Environment Variables** settings, add the
-   same three variables from your `.env.local` file.
-4. Click **Deploy**.
+1. Click **Start free trial**.
+2. Create an account.
+3. Enter the company information.
+4. Complete registration.
+5. Log in to the dashboard.
 
-Vercel automatically applies the security headers defined in
-`next.config.mjs` (Content-Security-Policy, HSTS, clickjacking protection,
-and MIME-sniffing protection) to every deployed page.
+The application will store the data in MongoDB through Mongoose.
 
 ---
 
-## What's inside
+# MongoDB database structure
 
-| Area | What it does |
-|---|---|
-| **Employees** | Add and manage permanent staff, salaries, and banking details |
-| **Payroll** | Run monthly payroll with automatic ERCA income tax and pension calculations |
-| **Payslips** | Auto-generated per employee per run, printable / saveable as PDF |
-| **ERCA reports** | Per-run tax filing summary, exportable as CSV |
-| **Leave** | Request and approve annual, sick, maternity, paternity, and unpaid leave |
-| **Overtime** | Log hours by type (weekday/rest-day/holiday/night) with correct multipliers, folds into next payroll run |
-| **Offer letters** | Generate, preview, and print consistent offer letters |
-| **Contractors** | Track non-payroll contractors with their own withholding tax rate |
-| **Team** | Admins generate one-time invite links per role (admin/HR/finance/viewer); everyone's access is enforced at the database level, not just hidden buttons |
-| **Employee portal** | A private link (no login) where staff can view their own payslips and leave history |
-| **Settings** | Company profile, TIN, pension scheme |
+The application uses Mongoose models for the main application entities.
+
+The major collections include:
+
+| Collection        | Purpose                       |
+| ----------------- | ----------------------------- |
+| `companies`       | Company information           |
+| `profiles`        | User profiles and roles       |
+| `employees`       | Employee information          |
+| `contractors`     | Contractor information        |
+| `payrollruns`     | Payroll runs                  |
+| `payslips`        | Employee payslips             |
+| `leaverequests`   | Leave requests                |
+| `overtimeentries` | Overtime records              |
+| `offerletters`    | Employee offer letters        |
+| `portaltokens`    | Employee portal access tokens |
+| `teaminvites`     | Team invitations              |
+| `auditlogs`       | Application audit records     |
+
+The exact MongoDB collection names are determined by the Mongoose models in:
+
+```text
+src/models/
+```
 
 ---
 
-## Security notes
+# How MongoDB is used by the application
 
-- Every table has Row Level Security — a signed-in user can only ever see
-  their own company's data, enforced at the database level, not just in
-  the UI.
-- Roles are enforced the same way: a `viewer` account gets a database-level
-  read-only grant, not just disabled buttons in the interface. Only an
-  `admin` can change company settings or another member's role, and that's
-  backed by a trigger as well as a policy, so it holds even if you call the
-  Supabase API directly instead of going through the app.
-- Every text input passes through `src/lib/sanitize.js` before it reaches
-  the database, stripping any HTML/script content (defense against stored
-  XSS).
-- `next.config.mjs` sets a strict Content-Security-Policy plus
-  clickjacking, MIME-sniffing, and HSTS headers on every response.
-- The employee portal never uses a Supabase session — it uses a single
-  opaque, expiring token, resolved server-side only.
-- This project runs **Next.js 15.5.18** (Maintenance LTS, supported with
-  security patches through October 2026), not the older Next.js 14 line
-  from earlier drafts of this project. Next.js 14 reached end-of-life in
-  October 2025 and stopped receiving security patches — several real
-  vulnerabilities (denial-of-service and source-code-exposure bugs in
-  React Server Components) affect it with no fix available. Framework
-  version is part of your attack surface: **run `npm outdated` every few
-  months and upgrade `next`/`react`/`react-dom` promptly when a new patch
-  release ships**, especially in response to a security advisory at
-  https://nextjs.org/blog. A perfectly secure app on an unpatched
-  framework is still an unpatched app.
-- **Known remaining item:** `npm audit` will report one moderate-severity
-  advisory (GHSA-qx2v-qp2m-jg93, a PostCSS XSS issue) coming from a
-  private nested copy of `postcss@8.4.31` bundled *inside* Next.js
-  15.5.18 itself — not from anything in this project's own dependencies.
-  As of this writing there is no fix from either `npm audit fix` or a
-  `package.json` override, because Next.js hard-pins that internal copy
-  regardless of what version you install at the top level (tracked at
-  https://github.com/vercel/next.js/issues/93234). The practical risk is
-  low: this bug only matters if the app takes **user-submitted CSS** and
-  re-stringifies it into a `<style>` tag, which nothing in this codebase
-  does. Do **not** run `npm audit fix --force` — it will "fix" this by
-  downgrading `next` to version 9.3.3, which will break the entire app.
-  Re-check `npm audit` after each `next` upgrade; this should disappear
-  once Vercel ships a patched release.
+The application does **not** connect directly from the browser to MongoDB.
 
-## Ethiopian tax figures used
+The architecture is:
 
-The ERCA income tax brackets and 7%/11% pension split live in
-`src/lib/payrollCalc.js`, in one place, so you only ever need to update
-them in one file if the law changes. Double-check the current brackets
-against the latest ERCA directive before relying on this for real filings.
+```text
+Browser
+   ↓
+Next.js frontend
+   ↓
+API routes
+   ↓
+Mongoose
+   ↓
+MongoDB
+```
+
+For example:
+
+```text
+Employee page
+     ↓
+/api/employees
+     ↓
+Employee Mongoose model
+     ↓
+MongoDB employees collection
+```
+
+This keeps the MongoDB credentials on the server and prevents the browser from accessing the database directly.
+
+---
+
+# Authentication
+
+Authentication is handled by NextAuth.
+
+The application uses:
+
+```text
+Next.js
+   ↓
+NextAuth
+   ↓
+MongoDB/Mongoose
+```
+
+Authentication-related secrets are stored in environment variables.
+
+Never expose `AUTH_SECRET` to the browser.
+
+---
+
+# Employee Portal
+
+The employee portal uses a private token rather than exposing MongoDB credentials or database access to employees.
+
+The general flow is:
+
+```text
+Employee portal link
+       ↓
+Portal token
+       ↓
+Next.js API
+       ↓
+MongoDB
+       ↓
+Employee's own information
+```
+
+The portal token secret is stored in:
+
+```env
+PORTAL_TOKEN_SECRET=...
+```
+
+---
+
+# Application features
+
+| Area                | What it does                                                                |
+| ------------------- | --------------------------------------------------------------------------- |
+| **Employees**       | Add and manage permanent staff, salaries, and banking details               |
+| **Payroll**         | Run monthly payroll with automatic ERCA income tax and pension calculations |
+| **Payslips**        | Generate employee payslips for payroll runs                                 |
+| **ERCA reports**    | Generate payroll/tax reporting information                                  |
+| **Leave**           | Request and approve annual, sick, maternity, paternity, and unpaid leave    |
+| **Overtime**        | Record overtime hours using the appropriate multipliers                     |
+| **Offer letters**   | Generate, preview, and print offer letters                                  |
+| **Contractors**     | Manage non-payroll contractors and withholding tax                          |
+| **Team**            | Manage team members and role-based access                                   |
+| **Employee portal** | Allow employees to view their own payslips and leave information            |
+| **Settings**        | Manage company information, TIN, and pension settings                       |
+| **Reports**         | View payroll and company reports                                            |
+
+---
+
+# Security
+
+## MongoDB credentials
+
+MongoDB credentials must remain server-side.
+
+Never put:
+
+```env
+MONGODB_URI=...
+```
+
+inside a `NEXT_PUBLIC_*` variable.
+
+Do not commit `.env.local`.
+
+---
+
+## Company data isolation
+
+Because MongoDB does not provide the same Row Level Security mechanism used by Supabase/PostgreSQL, company-level authorization must be enforced by the application's server-side API routes.
+
+API routes should verify that the authenticated user has access to the requested company and records.
+
+For example:
+
+```text
+Authenticated user
+       ↓
+Determine company
+       ↓
+Verify authorization
+       ↓
+Query MongoDB using companyId
+       ↓
+Return only authorized records
+```
+
+Do not rely only on frontend UI restrictions.
+
+A hidden button is not a security mechanism.
+
+---
+
+## Input sanitization
+
+User-provided text should be sanitized before being stored or rendered where appropriate.
+
+The project includes:
+
+```text
+src/lib/sanitize.js
+```
+
+This provides an additional defense against stored XSS.
+
+---
+
+## HTTP security headers
+
+`next.config.mjs` configures security headers including:
+
+* Content Security Policy
+* X-Frame-Options
+* X-Content-Type-Options
+* Strict-Transport-Security
+* Referrer-Policy
+* Permissions-Policy
+
+MongoDB does not need to be included in the browser's Content Security Policy because MongoDB connections happen server-side.
+
+---
+
+# Development commands
+
+Start the development server:
+
+```bash
+npm run dev
+```
+
+Build the application:
+
+```bash
+npm run build
+```
+
+Start the production server:
+
+```bash
+npm start
+```
+
+Check for outdated packages:
+
+```bash
+npm outdated
+```
+
+Check for dependency vulnerabilities:
+
+```bash
+npm audit
+```
+
+---
+
+# Troubleshooting
+
+## MongoDB connection error
+
+If you see a MongoDB connection error, check:
+
+1. `MONGODB_URI` exists in `.env.local`.
+2. The username is correct.
+3. The password is correct.
+4. The MongoDB cluster is running.
+5. Your IP address is allowed in MongoDB Atlas **Network Access**.
+6. Special characters in the password are URL-encoded.
+7. Restart the development server after changing `.env.local`.
+
+---
+
+## `MONGODB_URI` is undefined
+
+Make sure the file is named exactly:
+
+```text
+.env.local
+```
+
+and is located in the project root:
+
+```text
+EthioPayroll/
+├── .env.local
+├── package.json
+├── next.config.mjs
+├── src/
+└── ...
+```
+
+Then restart:
+
+```bash
+npm run dev
+```
+
+---
+
+## Authentication problems
+
+Check that:
+
+```env
+AUTH_SECRET=...
+NEXTAUTH_URL=http://localhost:3000
+```
+
+are configured correctly.
+
+After changing authentication environment variables, restart the development server.
+
+---
+
+# Deployment
+
+The application can be deployed using services such as Vercel.
+
+## Step 1 — Push the project to GitHub
+
+Make sure `.env.local` is not committed.
+
+Check:
+
+```bash
+git status
+```
+
+Your environment file should not appear as a file to commit.
+
+---
+
+## Step 2 — Create a Vercel project
+
+Go to:
+
+https://vercel.com
+
+Create a new project and import your GitHub repository.
+
+---
+
+## Step 3 — Add environment variables
+
+In your Vercel project, add:
+
+```text
+MONGODB_URI
+AUTH_SECRET
+PORTAL_TOKEN_SECRET
+NEXTAUTH_URL
+```
+
+For example:
+
+```env
+MONGODB_URI=mongodb+srv://...
+AUTH_SECRET=...
+PORTAL_TOKEN_SECRET=...
+NEXTAUTH_URL=https://your-production-domain.com
+```
+
+Do not put production secrets directly into source code.
+
+---
+
+## Step 4 — Configure MongoDB Atlas
+
+In MongoDB Atlas:
+
+1. Open **Network Access**.
+2. Configure access for your deployment environment.
+3. Make sure the database user has the required permissions.
+4. Confirm that the production application can connect to the cluster.
+
+For production, avoid unnecessarily broad database/network permissions.
+
+---
+
+## Step 5 — Deploy
+
+After configuring the environment variables, deploy the project.
+
+Vercel will build the Next.js application and start the production version.
+
+---
+
+# Supabase Migration
+
+This version of EthioPayroll uses **MongoDB/Mongoose instead of Supabase**.
+
+The application no longer requires:
+
+* Supabase account
+* Supabase project
+* Supabase SQL setup
+* Supabase API URL
+* Supabase anon key
+* Supabase service-role key
+* Supabase Row Level Security
+* Supabase client-side database access
+
+The old file:
+
+```text
+SUPABASE_FULL_SETUP.sql
+```
+
+is no longer required for the MongoDB version.
+
+Likewise, the old Supabase client should not be required by the application.
+
+---
+
+# Project structure
+
+The important parts of the application are:
+
+```text
+src/
+├── app/
+│   ├── api/
+│   │   ├── employees/
+│   │   ├── payroll/
+│   │   ├── payslips/
+│   │   ├── leave/
+│   │   ├── overtime/
+│   │   ├── contractors/
+│   │   ├── reports/
+│   │   ├── team/
+│   │   └── ...
+│   │
+│   └── ...
+│
+├── lib/
+│   ├── mongodb.js
+│   ├── payrollCalc.js
+│   └── sanitize.js
+│
+└── models/
+    ├── Company.js
+    ├── Profile.js
+    ├── Employee.js
+    ├── Contractor.js
+    ├── PayrollRun.js
+    ├── Payslip.js
+    ├── LeaveRequest.js
+    ├── OvertimeEntry.js
+    ├── OfferLetter.js
+    ├── PortalToken.js
+    ├── TeamInvite.js
+    └── AuditLog.js
+```
+
+---
+
+# Before using the application for real payroll
+
+The payroll calculation logic is located in:
+
+```text
+src/lib/payrollCalc.js
+```
+
+The Ethiopian tax and pension calculations should be checked against the latest applicable Ethiopian tax and pension rules before using the application for actual payroll filing.
+
+The application is a software system and should not be treated as a substitute for professional tax or legal advice.
+
+---
+
+# Quick Start
+
+If MongoDB Atlas is already configured, the shortest setup is:
+
+```bash
+npm install
+```
+
+Create `.env.local`:
+
+```env
+MONGODB_URI=your-mongodb-connection-string
+AUTH_SECRET=your-auth-secret
+PORTAL_TOKEN_SECRET=your-portal-token-secret
+NEXTAUTH_URL=http://localhost:3000
+```
+
+Then run:
+
+```bash
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+You are ready to use the MongoDB version of EthioPayroll.
